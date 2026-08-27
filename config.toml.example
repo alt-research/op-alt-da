@@ -72,10 +72,10 @@ tx_worker_accounts = 0
 # Choose ONE of the following modes:
 #   - "local": Local filesystem keyring (default)
 #   - "popsigner": POPSigner remote signing service
-#
-# Future modes (not yet implemented):
 #   - "aws_kms": AWS KMS
 #   - "gcp_kms": GCP Cloud KMS
+#
+# Future mode (not yet implemented):
 #   - "vault": HashiCorp Vault Transit
 
 [celestia.signer]
@@ -116,6 +116,34 @@ key_name = "my_celes_key"
 # api_key = ""  # Prefer POPSIGNER_API_KEY env var
 # key_id = "00000000-0000-0000-0000-000000000000"
 # base_url = ""  # Optional: custom API endpoint
+
+# ------------------------------------------------------------------------------
+# AWS KMS (mode = "aws_kms")
+# ------------------------------------------------------------------------------
+# Requires a pre-created ECC_SECG_P256K1 SIGN_VERIFY key. AWS default
+# credentials/IRSA are used; key material never enters this configuration.
+
+[celestia.signer.aws_kms]
+# region = "us-east-2"
+# key_id = "alias/op-alt-da/example"
+# endpoint = ""  # LocalStack/testing only
+
+# ------------------------------------------------------------------------------
+# GCP Cloud KMS (mode = "gcp_kms")
+# ------------------------------------------------------------------------------
+# Requires an HSM-backed EC_SIGN_SECP256K1_SHA256 asymmetric signing key.
+# key_version is mandatory and must be numeric: changing key version changes
+# the public key and Celestia account address.
+# Uses Application Default Credentials by default. Prefer GKE Workload Identity
+# in production; credentials_file is intended for development/migration only.
+
+[celestia.signer.gcp_kms]
+# project = "example-project"
+# location = "us-east1"
+# key_ring = "celestia"
+# key = "op-alt-da"
+# key_version = "1"
+# credentials_file = ""
 
 # ==============================================================================
 # SUBMISSION CONFIGURATION

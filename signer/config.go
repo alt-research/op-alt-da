@@ -3,6 +3,8 @@ package signer
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // Mode constants for signer backends.
@@ -30,7 +32,7 @@ type Config struct {
 	// AWSKMS contains configuration for AWS KMS signing.
 	AWSKMS AWSKMSConfig `toml:"aws_kms"`
 
-	// GCPKMS contains configuration for GCP Cloud KMS signing (future).
+	// GCPKMS contains configuration for GCP Cloud KMS signing.
 	GCPKMS GCPKMSConfig `toml:"gcp_kms"`
 
 	// Vault contains configuration for HashiCorp Vault Transit signing (future).
@@ -83,7 +85,7 @@ type AWSKMSConfig struct {
 	SecretAccessKey string `toml:"secret_access_key"`
 }
 
-// GCPKMSConfig holds configuration for GCP Cloud KMS signing (future implementation).
+// GCPKMSConfig holds configuration for GCP Cloud KMS signing.
 type GCPKMSConfig struct {
 	// Project is the GCP project ID.
 	Project string `toml:"project"`
@@ -97,7 +99,8 @@ type GCPKMSConfig struct {
 	// Key is the name of the crypto key.
 	Key string `toml:"key"`
 
-	// KeyVersion is the version of the key (optional, defaults to latest).
+	// KeyVersion is the numeric CryptoKeyVersion. It is required because each
+	// asymmetric key version has a different public key and Celestia address.
 	KeyVersion string `toml:"key_version"`
 
 	// CredentialsFile is the path to the service account JSON file (optional).
@@ -167,7 +170,9 @@ func (c *Config) Validate() error {
 		}
 
 	case ModeGCPKMS:
-		return fmt.Errorf("signer mode '%s' is not yet implemented", ModeGCPKMS)
+		if err := c.GCPKMS.Validate(); err != nil {
+			return fmt.Errorf("signer.gcp_kms: %w", err)
+		}
 
 	case ModeVault:
 		return fmt.Errorf("signer mode '%s' is not yet implemented", ModeVault)
@@ -181,6 +186,38 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("unknown signer mode: %s (valid: %s, %s, %s, %s, %s)",
 			c.Mode, ModeLocal, ModePOPSigner, ModeAWSKMS, ModeGCPKMS, ModeVault)
+	}
+
+	return nil
+}
+
+// Validate checks that the GCP KMS resource is explicit and stable. In
+// particular, key_version must never float to a new primary version because
+// that would silently change the Celestia account address.
+func (c *GCPKMSConfig) Validate() error {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "project", value: c.Project},
+		{name: "location", value: c.Location},
+		{name: "key_ring", value: c.KeyRing},
+		{name: "key", value: c.Key},
+		{name: "key_version", value: c.KeyVersion},
+	}
+
+	for _, field := range fields {
+		if field.value == "" {
+			return fmt.Errorf("%s is required", field.name)
+		}
+		if strings.Contains(field.value, "/") {
+			return fmt.Errorf("%s must be an ID, not a resource path", field.name)
+		}
+	}
+
+	version, err := strconv.ParseUint(c.KeyVersion, 10, 64)
+	if err != nil || version == 0 {
+		return fmt.Errorf("key_version must be a positive integer")
 	}
 
 	return nil

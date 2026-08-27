@@ -8,7 +8,7 @@ This repository implements a Celestia `da-server` for Alt-DA mode using generic 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  PUT Request → Create blob → Submit via CoreGRPC → Return BlobID    │
 │                                    ↑                                │
-│                  Signer (local keyring OR POPSigner)                │
+│       Signer (local, POPSigner, AWS KMS, or GCP Cloud KMS)          │
 │                                                                     │
 │  GET Request → Parse BlobID (height + commitment) → blob.Get()      │
 │                                    ↑                                │
@@ -22,19 +22,22 @@ This repository implements a Celestia `da-server` for Alt-DA mode using generic 
 
 Before running the DA server, you need:
 
-1. **A signer for Celestia transactions** - Either local keyring OR POPSigner
+1. **A signer for Celestia transactions** - Local keyring, POPSigner,
+   AWS KMS, or GCP Cloud KMS
 2. **Access to a Celestia bridge/light node** - For reading blobs (JSON-RPC)
 3. **Access to a Celestia consensus node** - For submitting blobs (CoreGRPC)
 4. **Go 1.26+** - For building from source
 
 ### Signer Options
 
-The DA server supports two signing modes:
+The DA server supports four signing modes:
 
 | Mode | Description | Best For |
 |------|-------------|----------|
 | **Local Keyring** | Filesystem-based keyring | Development, self-hosted |
 | **POPSigner** | Remote signing service | Production, key security |
+| **AWS KMS** | AWS-managed secp256k1 key | Production on AWS |
+| **GCP Cloud KMS** | HSM-backed GCP secp256k1 key | Production on GCP |
 
 ## Quick Start
 
@@ -80,6 +83,34 @@ celestia-appd keys show my_celes_key --keyring-backend test \
 export POPSIGNER_API_KEY="psk_live_xxxxx"
 ```
 
+#### Option C: AWS KMS
+
+Create an `ECC_SECG_P256K1` key with `SIGN_VERIFY` usage, grant the workload
+`kms:GetPublicKey` and `kms:Sign`, and configure `[celestia.signer.aws_kms]` in
+`config.toml`. AWS default credentials/IRSA are used.
+
+#### Option D: GCP Cloud KMS
+
+GCP secp256k1 signing requires Cloud HSM:
+
+```bash
+gcloud kms keyrings create celestia \
+  --location us-east1
+
+gcloud kms keys create op-alt-da \
+  --keyring celestia \
+  --location us-east1 \
+  --purpose asymmetric-signing \
+  --default-algorithm ec-sign-secp256k1-sha256 \
+  --protection-level hsm
+```
+
+Grant the workload identity `roles/cloudkms.signer` and
+`roles/cloudkms.publicKeyViewer` on the CryptoKey (or an equivalent custom
+role). Use Application Default Credentials; GKE Workload Identity is
+recommended for production. Record and pin the numeric key version—selecting
+another version changes the public key and Celestia account address.
+
 ### 3. Run the Server
 
 **With Local Keyring:**
@@ -92,6 +123,12 @@ export POPSIGNER_API_KEY="psk_live_xxxxx"
 
 ```bash
 POPSIGNER_API_KEY="psk_live_xxxxx" ./bin/da-server --config=config.toml
+```
+
+**With AWS or GCP KMS:**
+
+```bash
+./bin/da-server --config=config.toml
 ```
 
 Or using CLI flags:
@@ -133,7 +170,7 @@ Or using CLI flags:
 
 | Flag                                  | Environment Variable                         | Default        | Description                           |
 | ------------------------------------- | -------------------------------------------- | -------------- | ------------------------------------- |
-| `--celestia.signer-mode`              | `OP_ALTDA_CELESTIA_SIGNER_MODE`              | `local`        | Signer mode: local, popsigner         |
+| `--celestia.signer-mode`              | `OP_ALTDA_CELESTIA_SIGNER_MODE`              | `local`        | Signer mode; cloud KMS details use TOML |
 | `--celestia.tx-client.keyring-path`   | `OP_ALTDA_CELESTIA_TX_CLIENT_KEYRING_PATH`   |                | Path to keyring (local mode)          |
 | `--celestia.tx-client.key-name`       | `OP_ALTDA_CELESTIA_TX_CLIENT_KEY_NAME`       | `my_celes_key` | Key name in keyring (local mode)      |
 | `--celestia.remote-signer.key-id`     | `OP_ALTDA_CELESTIA_REMOTE_SIGNER_KEY_ID`     |                | POPSigner key UUID                    |
@@ -187,7 +224,7 @@ p2p_network = "mocha-4"
 
 # Signer configuration - choose ONE mode
 [celestia.signer]
-mode = "local"  # or "popsigner"
+mode = "local"  # local, popsigner, aws_kms, or gcp_kms
 
 # Local keyring settings
 [celestia.signer.local]
@@ -198,6 +235,19 @@ key_name = "my_celes_key"
 # [celestia.signer.popsigner]
 # key_id = "your-key-uuid"
 # api_key via POPSIGNER_API_KEY env var (recommended)
+
+# AWS KMS settings (when mode = "aws_kms")
+# [celestia.signer.aws_kms]
+# region = "us-east-2"
+# key_id = "alias/op-alt-da/example"
+
+# GCP KMS settings (when mode = "gcp_kms")
+# [celestia.signer.gcp_kms]
+# project = "example-project"
+# location = "us-east1"
+# key_ring = "celestia"
+# key = "op-alt-da"
+# key_version = "1" # required; changing it changes the Celestia address
 
 [submission]
 timeout = "60s"
@@ -302,6 +352,15 @@ CELESTIA_AUTH_TOKEN="your-token" \
 CELESTIA_NAMESPACE="your-namespace" \
 make test-integration
 
+# Real GCP KMS signer integration test (uses ADC and performs one signature)
+GCP_KMS_PROJECT="your-project" \
+GCP_KMS_LOCATION="us-east1" \
+GCP_KMS_KEY_RING="celestia" \
+GCP_KMS_KEY="op-alt-da" \
+GCP_KMS_KEY_VERSION="1" \
+TEST_REGEX="GCPKMSSigner" \
+make test-integration
+
 # All tests
 make test-all
 ```
@@ -383,6 +442,19 @@ Verify the CoreGRPC endpoint is accessible:
 # Test connection
 grpcurl -plaintext consensus-full-mocha-4.celestia-mocha.com:9090 list
 ```
+
+### GCP KMS signer startup failures
+
+Verify all of the following:
+
+- the key algorithm is `EC_SIGN_SECP256K1_SHA256`;
+- the key uses HSM (or single-tenant HSM) protection;
+- `key_version` is a positive numeric version and is enabled;
+- ADC/Workload Identity can call `GetPublicKey` and `AsymmetricSign`;
+- the configured resource IDs are individual IDs, not full resource paths.
+
+The signer verifies GCP KMS CRC32C integrity fields, response resource name,
+algorithm, and protection level before accepting a public key or signature.
 
 ## License
 

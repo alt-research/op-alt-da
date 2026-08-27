@@ -40,7 +40,13 @@ func NewKeyring(cfg Config) (keyring.Keyring, string, error) {
 		return NewAWSKMSKeyring(cfg.AWSKMS, keyID)
 
 	case ModeGCPKMS:
-		return nil, "", fmt.Errorf("GCP Cloud KMS signer is not yet implemented")
+		log.Info("Creating GCP Cloud KMS keyring",
+			"project", cfg.GCPKMS.Project,
+			"location", cfg.GCPKMS.Location,
+			"key_ring", cfg.GCPKMS.KeyRing,
+			"key", cfg.GCPKMS.Key,
+			"key_version", cfg.GCPKMS.KeyVersion)
+		return NewGCPKMSKeyring(cfg.GCPKMS)
 
 	case ModeVault:
 		return nil, "", fmt.Errorf("HashiCorp Vault signer is not yet implemented")
