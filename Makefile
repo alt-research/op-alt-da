@@ -27,7 +27,7 @@ test:
 
 # Run unit tests only (main package + subpackages, excludes integration/benchmark)
 test-unit:
-	go test -v . ./fallback/... ./metrics/...
+	go test -v . ./fallback/... ./metrics/... ./signer/...
 
 # Run integration tests that live under the ./tests/integration directory
 TEST_REGEX ?=

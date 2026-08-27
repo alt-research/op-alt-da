@@ -46,17 +46,17 @@ const (
 	MetricsPortFlagName    = "metrics.port"
 
 	// fallback provider flags
-	FallbackEnabledFlagName     = "fallback.enabled"
-	FallbackProviderFlagName    = "fallback.provider"
-	FallbackModeFlagName        = "fallback.mode"
-	FallbackS3BucketFlagName    = "fallback.s3.bucket"
-	FallbackS3PrefixFlagName    = "fallback.s3.prefix"
-	FallbackS3EndpointFlagName  = "fallback.s3.endpoint"
-	FallbackS3RegionFlagName    = "fallback.s3.region"
-	FallbackS3CredTypeFlagName  = "fallback.s3.credential-type"
-	FallbackS3AccessKeyFlagName = "fallback.s3.access-key-id"
-	FallbackS3SecretKeyFlagName = "fallback.s3.access-key-secret"
-	FallbackS3TimeoutFlagName        = "fallback.s3.timeout"
+	FallbackEnabledFlagName           = "fallback.enabled"
+	FallbackProviderFlagName          = "fallback.provider"
+	FallbackModeFlagName              = "fallback.mode"
+	FallbackS3BucketFlagName          = "fallback.s3.bucket"
+	FallbackS3PrefixFlagName          = "fallback.s3.prefix"
+	FallbackS3EndpointFlagName        = "fallback.s3.endpoint"
+	FallbackS3RegionFlagName          = "fallback.s3.region"
+	FallbackS3CredTypeFlagName        = "fallback.s3.credential-type"
+	FallbackS3AccessKeyFlagName       = "fallback.s3.access-key-id"
+	FallbackS3SecretKeyFlagName       = "fallback.s3.access-key-secret"
+	FallbackS3TimeoutFlagName         = "fallback.s3.timeout"
 	FallbackS3ReadLegacyBlobsFlagName = "fallback.s3.read-legacy-blobs"
 )
 
@@ -147,7 +147,7 @@ var (
 	}
 	CelestiaSignerModeFlag = &cli.StringFlag{
 		Name:    CelestiaSignerModeFlagName,
-		Usage:   "signer mode: 'local' (filesystem keyring) or 'popsigner' (POPSigner)",
+		Usage:   "signer mode: local, popsigner, aws_kms, or gcp_kms (cloud KMS details require TOML config)",
 		Value:   "local",
 		EnvVars: prefixEnvVars("CELESTIA_SIGNER_MODE"),
 	}

@@ -1,5 +1,5 @@
 // Package signer provides a factory for creating cosmos-sdk keyrings
-// from various backends (local filesystem, POPSigner, AWS KMS, etc.).
+// from various backends (local filesystem, POPSigner, AWS KMS, GCP KMS, etc.).
 //
 // Usage:
 //
