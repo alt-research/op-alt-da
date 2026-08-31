@@ -1,0 +1,192 @@
+name: Build op-alt-da image to GAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to build
+        required: true
+        default: alt/op-alt-da/v0.16.0-dev
+      image_tag:
+        description: Docker image tag (leave empty for <ref>-<short-sha>)
+        required: false
+        default: ""
+
+env:
+  GAR_REGISTRY: us-west1-docker.pkg.dev
+  GAR_PROJECT: shared-resources-alt
+  GAR_LOCATION: us-west1
+  GAR_ARTIFACT_REPOSITORY: op-alt-da
+  GAR_REPOSITORY: shared-resources-alt/op-alt-da
+  IMAGE_NAME: op-alt-da
+  PLATFORM: linux/amd64
+
+concurrency:
+  group: build-op-alt-da-gar-${{ inputs.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan image build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      git_commit: ${{ steps.meta.outputs.git_commit }}
+      git_date: ${{ steps.meta.outputs.git_date }}
+
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Compute image metadata
+        id: meta
+        env:
+          REF_INPUT: ${{ inputs.ref }}
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git_commit="$(git rev-parse HEAD)"
+          git_date="$(git show -s --format='%ct' HEAD)"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+
+          if [[ -n "${IMAGE_TAG_INPUT}" ]]; then
+            image_tag="${IMAGE_TAG_INPUT}"
+          else
+            ref_name="${REF_INPUT#refs/heads/}"
+            ref_name="${ref_name#refs/tags/}"
+            safe_ref="$(printf '%s' "${ref_name}" \
+              | tr '/' '-' \
+              | sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//')"
+            if [[ -z "${safe_ref}" ]]; then
+              safe_ref="manual"
+            fi
+            image_tag="${safe_ref}-${short_sha}"
+          fi
+
+          if [[ ! "${image_tag}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid Docker image tag: ${image_tag}" >&2
+            exit 1
+          fi
+
+          {
+            echo "git_commit=${git_commit}"
+            echo "git_date=${git_date}"
+            echo "image_tag=${image_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Building ${git_commit} with image tag ${image_tag}"
+
+  prepare-registry:
+    name: Prepare GAR repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ensure GAR Docker repository exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gcloud artifacts repositories describe "${GAR_ARTIFACT_REPOSITORY}" \
+            --location="${GAR_LOCATION}" \
+            --project="${GAR_PROJECT}" > /dev/null 2>&1; then
+            echo "GAR repository ${GAR_PROJECT}/${GAR_ARTIFACT_REPOSITORY} already exists."
+            exit 0
+          fi
+
+          gcloud artifacts repositories create "${GAR_ARTIFACT_REPOSITORY}" \
+            --repository-format=docker \
+            --location="${GAR_LOCATION}" \
+            --project="${GAR_PROJECT}" \
+            --description="AltLayer op-alt-da development images"
+
+  build-push:
+    name: Build and push op-alt-da
+    needs: [plan, prepare-registry]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GAR
+        run: gcloud auth configure-docker "${GAR_REGISTRY}" --quiet
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          push: true
+          tags: ${{ env.GAR_REGISTRY }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ needs.plan.outputs.image_tag }}
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=amd64
+            GITCOMMIT=${{ needs.plan.outputs.git_commit }}
+            GITDATE=${{ needs.plan.outputs.git_date }}
+            VERSION=${{ needs.plan.outputs.image_tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.git_commit }}
+            org.opencontainers.image.version=${{ needs.plan.outputs.image_tag }}
+          cache-from: type=gha,scope=op-alt-da
+          cache-to: type=gha,scope=op-alt-da,mode=max
+
+      - name: Verify pushed image
+        env:
+          IMAGE: ${{ env.GAR_REGISTRY }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ needs.plan.outputs.image_tag }}
+        run: docker buildx imagetools inspect "${IMAGE}"
+
+      - name: Smoke-test pushed image
+        env:
+          IMAGE: ${{ env.GAR_REGISTRY }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ needs.plan.outputs.image_tag }}
+        run: |
+          docker pull "${IMAGE}"
+          docker run --rm "${IMAGE}" --version
+
+      - name: Summarize image
+        env:
+          IMAGE: ${{ env.GAR_REGISTRY }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ needs.plan.outputs.image_tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "## op-alt-da image pushed" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "\`${IMAGE}\`" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Digest: \`${DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"
