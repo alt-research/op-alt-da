@@ -131,6 +131,42 @@ POPSIGNER_API_KEY="psk_live_xxxxx" ./bin/da-server --config=config.toml
 ./bin/da-server --config=config.toml
 ```
 
+### Inspect the configured signer address
+
+Derive the Celestia account address from the configured signer's public key
+without signing or submitting a transaction:
+
+```bash
+./bin/da-server signer-address --config=config.toml
+```
+
+The default output is only the `celestia1...` address, which is convenient for
+shell scripts. Use JSON when recording the signer identity and pinned key:
+
+```bash
+./bin/da-server signer-address \
+  --config=config.toml \
+  --output=json
+```
+
+The command reads only the signer section. It does not require the Celestia
+namespace, bridge JSON-RPC, Core gRPC, a funded account, or signing permission.
+For GCP KMS it uses ADC to call `GetPublicKey`; grant
+`roles/cloudkms.publicKeyViewer` to the runtime identity.
+
+From a Kubernetes Pod using the Helm chart, run the same image and mounted
+configuration through `kubectl exec`:
+
+```bash
+kubectl -n <namespace> exec deploy/<deployment> \
+  -c celestia-da-server -- \
+  /usr/local/bin/da-server signer-address \
+  --config=/etc/celestia-da-server/config.toml
+```
+
+This second process inherits the Pod's Workload Identity credentials. It does
+not interrupt or modify the running DA server.
+
 Or using CLI flags:
 
 ```bash

@@ -182,6 +182,28 @@ The authoritative repo-local configuration reference remains:
 - `cmd/daserver/config.go`
 - `cmd/daserver/flags.go`
 
+### Inspect the signer address without submitting data
+
+Before funding the Celestia submitter account, derive its address from the
+configured public key:
+
+```bash
+./bin/da-server signer-address --config=config.toml
+```
+
+For a Helm-managed Pod, this reuses the mounted config and Workload Identity:
+
+```bash
+kubectl -n <namespace> exec deploy/<deployment> \
+  -c celestia-da-server -- \
+  /usr/local/bin/da-server signer-address \
+  --config=/etc/celestia-da-server/config.toml
+```
+
+The command must succeed before funding. It does not initialize QuickNode,
+sign a message, or submit a blob. Use `--output=json` to record the address,
+signer mode, and exact key name/version.
+
 ## Suggested End-to-End Order
 
 Using the standard Optimism operator flow, the usual order is:

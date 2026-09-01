@@ -179,6 +179,7 @@ jobs:
         run: |
           docker pull "${IMAGE}"
           docker run --rm "${IMAGE}" --version
+          docker run --rm "${IMAGE}" signer-address --help
 
       - name: Summarize image
         env:
