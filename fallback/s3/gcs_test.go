@@ -3,6 +3,8 @@ package s3
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +64,30 @@ func TestNewS3Provider_GCSEndpointDoesNotImplicitlyEnableCompatibility(t *testin
 	assert.Equal(t, aws.ResponseChecksumValidationUnset, opts.ResponseChecksumValidation)
 	_, isGCSSigner := opts.HTTPSignerV4.(*gcsHTTPSignerV4)
 	assert.False(t, isGCSSigner)
+}
+
+func TestNewGCSProvider_RequestExcludesAcceptEncodingFromSignedHeaders(t *testing.T) {
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	provider, err := NewGCSProvider(context.Background(), Config{
+		Bucket:          "test-bucket",
+		Endpoint:        server.URL,
+		Region:          "auto",
+		CredentialType:  "static",
+		AccessKeyID:     "test-key",
+		AccessKeySecret: "test-secret",
+	})
+	require.NoError(t, err)
+	require.NoError(t, provider.Put(context.Background(), []byte("commitment"), []byte("payload")))
+
+	require.NotEmpty(t, authorization)
+	assert.Contains(t, authorization, "SignedHeaders=")
+	assert.NotContains(t, strings.ToLower(authorization), "accept-encoding")
 }
 
 type captureHTTPSignerV4 struct {

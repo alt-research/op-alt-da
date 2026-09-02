@@ -53,6 +53,11 @@ func NewGCSProvider(ctx context.Context, cfg Config) (*S3Provider, error) {
 	opts.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	opts.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	opts.HTTPSignerV4 = &gcsHTTPSignerV4{wrapped: opts.HTTPSignerV4}
+	// Options from the already initialized AWS client contain auth schemes whose
+	// adapters are bound to the original signer. Rebuild the resolver and schemes
+	// so the new client actually signs requests with gcsHTTPSignerV4.
+	opts.AuthSchemeResolver = nil
+	opts.AuthSchemes = nil
 	provider.client = awss3.New(opts)
 
 	return provider, nil
