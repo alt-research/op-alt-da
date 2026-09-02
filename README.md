@@ -219,6 +219,7 @@ Or using CLI flags:
 | --------------------------------- | ---------------------------------------- | ----------- | ---------------------------------------- |
 | `--fallback.enabled`              | `OP_ALTDA_FALLBACK_ENABLED`              | `false`     | Enable fallback storage                  |
 | `--fallback.provider`             | `OP_ALTDA_FALLBACK_PROVIDER`             | `s3`        | Fallback provider type                   |
+| `--fallback.s3.backend`           | `OP_ALTDA_FALLBACK_S3_BACKEND`           | `aws`       | S3-compatible backend: aws or gcs        |
 | `--fallback.s3.bucket`            | `OP_ALTDA_FALLBACK_S3_BUCKET`            |             | S3 bucket name                           |
 | `--fallback.s3.prefix`            | `OP_ALTDA_FALLBACK_S3_PREFIX`            |             | S3 key prefix                            |
 | `--fallback.s3.endpoint`          | `OP_ALTDA_FALLBACK_S3_ENDPOINT`          |             | S3 endpoint (for MinIO, etc.)            |
@@ -349,9 +350,14 @@ Fallback failures are non-fatal and logged as warnings.
   --celestia.tx-client.keyring-path="$HOME/.celestia-light-mocha-4/keys" \
   --celestia.tx-client.core-grpc.addr="consensus-full-mocha-4.celestia-mocha.com:9090" \
   --fallback.enabled=true \
+  --fallback.s3.backend="aws" \
   --fallback.s3.bucket="my-da-fallback" \
   --fallback.s3.region="us-east-1"
 ```
+
+For GCS XML API interoperability, set
+`--fallback.s3.backend="gcs"` explicitly. The GCS endpoint alone does not
+enable GCS-specific signing and checksum behavior.
 
 ## Metrics
 

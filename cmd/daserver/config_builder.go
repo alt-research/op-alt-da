@@ -156,6 +156,9 @@ func BuildConfigFromCLI(ctx *cli.Context) (*Config, error) {
 	if ctx.IsSet(FallbackS3BucketFlagName) {
 		cfg.Fallback.S3.Bucket = ctx.String(FallbackS3BucketFlagName)
 	}
+	if ctx.IsSet(FallbackS3BackendFlagName) {
+		cfg.Fallback.S3.Backend = ctx.String(FallbackS3BackendFlagName)
+	}
 	if ctx.IsSet(FallbackS3PrefixFlagName) {
 		cfg.Fallback.S3.Prefix = ctx.String(FallbackS3PrefixFlagName)
 	}
@@ -183,4 +186,3 @@ func BuildConfigFromCLI(ctx *cli.Context) (*Config, error) {
 
 	return cfg, nil
 }
-

@@ -132,6 +132,7 @@ func StartDAServer(cliCtx *cli.Context) error {
 			switch provider {
 			case "s3":
 				// Build S3 config from TOML, with CLI flags as fallback
+				backend := firstNonEmpty(cfg.Fallback.S3.Backend, cliCtx.String(FallbackS3BackendFlagName))
 				s3Timeout, _ := cfg.GetS3Timeout()
 				if cliCtx.IsSet(FallbackS3TimeoutFlagName) {
 					s3Timeout = cliCtx.Duration(FallbackS3TimeoutFlagName)
@@ -158,14 +159,24 @@ func StartDAServer(cliCtx *cli.Context) error {
 					return fmt.Errorf("fallback.s3.bucket is required when fallback is enabled with s3 provider")
 				}
 
-				s3Provider, err := s3.NewS3Provider(cliCtx.Context, s3Cfg)
+				var s3Provider *s3.S3Provider
+				var err error
+				switch backend {
+				case s3.BackendAWS:
+					s3Provider, err = s3.NewS3Provider(cliCtx.Context, s3Cfg)
+				case s3.BackendGCS:
+					s3Provider, err = s3.NewGCSProvider(cliCtx.Context, s3Cfg)
+				default:
+					return fmt.Errorf("fallback.s3.backend must be %q or %q", s3.BackendAWS, s3.BackendGCS)
+				}
 				if err != nil {
-					return fmt.Errorf("failed to initialize S3 fallback provider: %w", err)
+					return fmt.Errorf("failed to initialize %s fallback provider: %w", backend, err)
 				}
 				fallbackProvider = s3Provider
 				fallbackMode := firstNonEmpty(cfg.Fallback.Mode, cliCtx.String(FallbackModeFlagName))
 				l.Info("Fallback provider initialized",
 					"provider", "s3",
+					"backend", backend,
 					"bucket", s3Cfg.Bucket,
 					"prefix", s3Cfg.Prefix,
 					"mode", fallback.NormalizeMode(fallbackMode),

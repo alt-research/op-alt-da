@@ -26,7 +26,7 @@ func TestIntegration_GCSXMLFallback(t *testing.T) {
 	defer cancel()
 
 	prefix := fmt.Sprintf("op-alt-da-integration/%d", time.Now().UnixNano())
-	provider, err := NewS3Provider(ctx, Config{
+	provider, err := NewGCSProvider(ctx, Config{
 		Bucket:          bucket,
 		Prefix:          prefix,
 		Endpoint:        "https://storage.googleapis.com",

@@ -7,14 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -59,35 +55,6 @@ type S3Provider struct {
 	readLegacyBlobs bool
 }
 
-type gcsHTTPSignerV4 struct {
-	wrapped s3.HTTPSignerV4
-}
-
-func (s *gcsHTTPSignerV4) SignHTTP(
-	ctx context.Context,
-	credentials aws.Credentials,
-	request *http.Request,
-	payloadHash string,
-	service string,
-	region string,
-	signingTime time.Time,
-	optFns ...func(*v4.SignerOptions),
-) error {
-	// GCS may alter Accept-Encoding after receiving the request. Excluding it
-	// from SigV4 prevents the resulting signature mismatch.
-	request.Header.Del("Accept-Encoding")
-	return s.wrapped.SignHTTP(ctx, credentials, request, payloadHash, service, region, signingTime, optFns...)
-}
-
-func isGCSXMLEndpoint(endpoint string) bool {
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	return host == "storage.googleapis.com" || strings.HasSuffix(host, ".storage.googleapis.com")
-}
-
 // NewS3Provider creates a new S3 fallback provider.
 func NewS3Provider(ctx context.Context, cfg Config) (*S3Provider, error) {
 	if cfg.Bucket == "" {
@@ -102,16 +69,12 @@ func NewS3Provider(ctx context.Context, cfg Config) (*S3Provider, error) {
 		cfg.Timeout = 30 * time.Second
 	}
 
-	// Build S3 client options.
-	isGCSEndpoint := isGCSXMLEndpoint(cfg.Endpoint)
+	// Build S3 client options
 	var s3Opts []func(*s3.Options)
 	if cfg.Endpoint != "" {
 		s3Opts = append(s3Opts, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(cfg.Endpoint)
 			o.UsePathStyle = true // Required for most S3-compatible services
-			if isGCSEndpoint {
-				o.HTTPSignerV4 = &gcsHTTPSignerV4{wrapped: o.HTTPSignerV4}
-			}
 		})
 	}
 
@@ -138,33 +101,23 @@ func NewS3Provider(ctx context.Context, cfg Config) (*S3Provider, error) {
 		return nil, fmt.Errorf("s3: unknown credential type: %s", cfg.CredentialType)
 	}
 
-	var awsCfg aws.Config
+	var client *s3.Client
 	if useDefaultChain {
 		opts := []func(*config.LoadOptions) error{
 			config.WithRegion(cfg.Region),
 		}
-		var err error
-		awsCfg, err = config.LoadDefaultConfig(ctx, opts...)
+		awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("s3: failed to load AWS config: %w", err)
 		}
+		client = s3.NewFromConfig(awsCfg, s3Opts...)
 	} else {
-		awsCfg = aws.Config{
+		awsCfg := aws.Config{
 			Region:      cfg.Region,
 			Credentials: credsProvider,
 		}
+		client = s3.NewFromConfig(awsCfg, s3Opts...)
 	}
-
-	// AWS SDK for Go v2 enables optional S3 request/response checksums by
-	// default. GCS XML interoperability requires both the checksum policy below
-	// and excluding Accept-Encoding from SigV4 SignedHeaders. Keep AWS S3 and
-	// other custom endpoint behavior unchanged.
-	if isGCSEndpoint {
-		awsCfg.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
-		awsCfg.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
-	}
-
-	client := s3.NewFromConfig(awsCfg, s3Opts...)
 
 	return &S3Provider{
 		client:          client,

@@ -10,6 +10,7 @@ import (
 
 	celestia "github.com/celestiaorg/op-alt-da"
 	"github.com/celestiaorg/op-alt-da/fallback"
+	"github.com/celestiaorg/op-alt-da/fallback/s3"
 	"github.com/celestiaorg/op-alt-da/signer"
 )
 
@@ -129,6 +130,7 @@ type FallbackConfig struct {
 
 // S3Config holds S3-specific fallback settings.
 type S3Config struct {
+	Backend         string `toml:"backend"`
 	Bucket          string `toml:"bucket"`
 	Prefix          string `toml:"prefix"`
 	Endpoint        string `toml:"endpoint"`
@@ -189,6 +191,7 @@ func DefaultConfig() Config {
 			Provider: "s3",
 			Mode:     fallback.ModeBoth,
 			S3: S3Config{
+				Backend: s3.BackendAWS,
 				Region:  "us-east-1",
 				Timeout: "30s",
 			},
@@ -259,6 +262,14 @@ func (c *Config) Validate() error {
 
 	if err := fallback.ValidateMode(c.Fallback.Mode); err != nil {
 		return err
+	}
+
+	if c.Fallback.Enabled && c.Fallback.Provider == "s3" {
+		switch c.Fallback.S3.Backend {
+		case s3.BackendAWS, s3.BackendGCS:
+		default:
+			return fmt.Errorf("fallback.s3.backend must be %q or %q", s3.BackendAWS, s3.BackendGCS)
+		}
 	}
 
 	return nil
